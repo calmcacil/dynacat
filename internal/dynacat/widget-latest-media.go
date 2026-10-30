@@ -16,13 +16,14 @@ import (
 var latestMediaWidgetTemplate = mustParseTemplate("latest-media.html", "widget-base.html")
 
 type latestMediaWidget struct {
-	widgetBase  `yaml:",inline"`
-	Frameless   bool                    `yaml:"frameless"`
-	Hosts       []latestMediaHostConfig `yaml:"hosts"`
-	ItemCount   int                     `yaml:"item-count"`
-	Columns     int                     `yaml:"columns"`
-	SmallColumn bool                    `yaml:"small-column"`
-	ShowOverlay *bool                   `yaml:"show-overlay"`
+	widgetBase    `yaml:",inline"`
+	Frameless     bool                    `yaml:"frameless"`
+	Hosts         []latestMediaHostConfig `yaml:"hosts"`
+	ItemCount     int                     `yaml:"item-count"`
+	Columns       int                     `yaml:"columns"`
+	SmallColumn   bool                    `yaml:"small-column"`
+	ShowOverlay   *bool                   `yaml:"show-overlay"`
+	GroupBySeries bool                    `yaml:"group-by-series"`
 
 	ShowOverlayEnabled bool `yaml:"-"`
 	EffectiveColumns   int  `yaml:"-"`
@@ -44,19 +45,21 @@ type latestMediaHostConfig struct {
 }
 
 type latestMediaItem struct {
-	ServerType   string
-	ServerURL    string
-	Title        string
-	Year         int
-	MediaType    string
-	SeriesTitle  string
-	AddedAt      time.Time
-	Duration     int64
-	CoverURL     string
-	ThumbnailURL string
-	LinkURL      string
-	TimeAgo      string
-	DurationStr  string
+	ServerType    string
+	ServerURL     string
+	Title         string
+	Year          int
+	MediaType     string
+	SeriesTitle   string
+	SeriesID      string
+	SeriesLinkURL string
+	AddedAt       time.Time
+	Duration      int64
+	CoverURL      string
+	ThumbnailURL  string
+	LinkURL       string
+	TimeAgo       string
+	DurationStr   string
 }
 
 func (widget *latestMediaWidget) initialize() error {
@@ -170,6 +173,9 @@ func (widget *latestMediaWidget) update(ctx context.Context) {
 	sort.Slice(allItems, func(i, j int) bool {
 		return allItems[i].AddedAt.After(allItems[j].AddedAt)
 	})
+	if widget.GroupBySeries {
+		allItems = groupLatestMediaSeries(allItems)
+	}
 
 	if len(allItems) > widget.ItemCount {
 		allItems = allItems[:widget.ItemCount]
@@ -235,17 +241,18 @@ type plexSectionsResponse struct {
 type plexRecentlyAddedResponse struct {
 	MediaContainer struct {
 		Metadata []struct {
-			Title            string `json:"title"`
-			GrandparentTitle string `json:"grandparentTitle"`
-			Type             string `json:"type"`
-			Year             int    `json:"year"`
-			Duration         int64  `json:"duration"`
-			AddedAt          int64  `json:"addedAt"`
-			Thumb            string `json:"thumb"`
-			Art              string `json:"art"`
-			GrandparentThumb string `json:"grandparentThumb"`
-			GrandparentArt   string `json:"grandparentArt"`
-			Key              string `json:"key"`
+			Title                string `json:"title"`
+			GrandparentTitle     string `json:"grandparentTitle"`
+			GrandparentRatingKey string `json:"grandparentRatingKey"`
+			Type                 string `json:"type"`
+			Year                 int    `json:"year"`
+			Duration             int64  `json:"duration"`
+			AddedAt              int64  `json:"addedAt"`
+			Thumb                string `json:"thumb"`
+			Art                  string `json:"art"`
+			GrandparentThumb     string `json:"grandparentThumb"`
+			GrandparentArt       string `json:"grandparentArt"`
+			Key                  string `json:"key"`
 		} `json:"Metadata"`
 	} `json:"MediaContainer"`
 }
@@ -293,7 +300,7 @@ func (widget *latestMediaWidget) fetchPlexLatest(ctx context.Context, host *late
 		}
 
 		recentURL := fmt.Sprintf("%s/library/sections/%s/recentlyAdded?X-Plex-Container-Size=%d",
-			baseURL, section.Key, widget.ItemCount)
+			baseURL, section.Key, widget.fetchItemCount())
 
 		req, err := http.NewRequestWithContext(ctx, "GET", recentURL, nil)
 		if err != nil {
@@ -325,6 +332,11 @@ func (widget *latestMediaWidget) fetchPlexLatest(ctx context.Context, host *late
 
 			if meta.Type == "episode" {
 				item.SeriesTitle = meta.GrandparentTitle
+				item.SeriesID = meta.GrandparentRatingKey
+				if machineID != "" && item.SeriesID != "" {
+					item.SeriesLinkURL = fmt.Sprintf("%s/web/index.html#!/server/%s/details?key=%s",
+						host.PublicBaseURL, machineID, url.QueryEscape("/library/metadata/"+item.SeriesID))
+				}
 			}
 
 			thumbPath := meta.Thumb
@@ -456,7 +468,7 @@ func (widget *latestMediaWidget) fetchJellyfinEmbyLatestFromParent(
 	parentID string,
 ) ([]latestMediaItem, error) {
 	url := fmt.Sprintf("%s/Users/%s/Items/Latest?Limit=%d&Fields=DateCreated,RunTimeTicks,AlbumArtist",
-		baseURL, userID, widget.ItemCount)
+		baseURL, userID, widget.fetchItemCount())
 	if parentID != "" {
 		url += "&ParentId=" + parentID
 	}
@@ -493,6 +505,7 @@ func (widget *latestMediaWidget) fetchJellyfinEmbyLatestFromParent(
 			Duration:    raw.RunTimeTicks / 10000,
 			AddedAt:     addedAt,
 			SeriesTitle: raw.SeriesName,
+			SeriesID:    raw.SeriesId,
 		}
 
 		if raw.Id != "" {
@@ -505,6 +518,9 @@ func (widget *latestMediaWidget) fetchJellyfinEmbyLatestFromParent(
 			item.CoverURL = fmt.Sprintf("%s/Items/%s/Images/Art?api_key=%s", baseURL, imageID, host.Token)
 			item.ThumbnailURL = fmt.Sprintf("%s/Items/%s/Images/Primary?api_key=%s", baseURL, imageID, host.Token)
 			item.LinkURL = fmt.Sprintf("%s/web/index.html#!/details?id=%s", host.PublicBaseURL, raw.Id)
+			if raw.SeriesId != "" {
+				item.SeriesLinkURL = fmt.Sprintf("%s/web/index.html#!/details?id=%s", host.PublicBaseURL, raw.SeriesId)
+			}
 		}
 
 		items = append(items, item)
@@ -514,6 +530,38 @@ func (widget *latestMediaWidget) fetchJellyfinEmbyLatestFromParent(
 }
 
 // --- Helpers ---
+
+func (widget *latestMediaWidget) fetchItemCount() int {
+	if !widget.GroupBySeries {
+		return widget.ItemCount
+	}
+	// Bound provider work even when a season import fills the recent feed.
+	if widget.ItemCount >= 100 {
+		return 1000
+	}
+	return widget.ItemCount * 10
+}
+
+// Items arrive newest first; the first episode represents its series.
+func groupLatestMediaSeries(items []latestMediaItem) []latestMediaItem {
+	type seriesKey struct{ serverType, serverURL, seriesID string }
+	seen := make(map[seriesKey]bool)
+	grouped := make([]latestMediaItem, 0, len(items))
+	for _, item := range items {
+		if item.MediaType == "episode" && item.SeriesID != "" {
+			key := seriesKey{item.ServerType, item.ServerURL, item.SeriesID}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if item.SeriesLinkURL != "" {
+				item.LinkURL = item.SeriesLinkURL
+			}
+		}
+		grouped = append(grouped, item)
+	}
+	return grouped
+}
 
 func containsString(slice []string, s string) bool {
 	for _, v := range slice {

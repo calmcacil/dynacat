@@ -3769,7 +3769,21 @@ Preview:
 | columns | integer | no | 4 |
 | small-column | boolean | no | false |
 | show-overlay | boolean | no | true |
+| group-by-series | boolean | no | false |
 | update-interval | string | no | 30m |
+
+##### `group-by-series`
+
+When enabled, episodes from the same series on the same server share one card,
+positioned by the newest episode's date added. Grouped cards link to the series
+when its identifier is available. Movies remain individual items, and episodes
+without a series identifier are not grouped. The default is `false`.
+
+`item-count` is applied after grouping. To find more distinct titles, grouped mode
+requests ten times `item-count`, capped at 1,000 candidates per library/feed. This
+is a bounded recent window, not a full-library scan: a large season import can
+still leave fewer cards than requested. No episode totals are inferred from this
+window. Grouping does not change image-cache expiration.
 
 ##### `hosts`
 
