@@ -3862,11 +3862,11 @@ positioned by the newest episode's date added. Grouped cards link to the series
 when its identifier is available. Movies remain individual items, and episodes
 without a series identifier are not grouped. The default is `false`.
 
-`item-count` is applied after grouping. To find more distinct titles, grouped mode
-requests ten times `item-count`, capped at 1,000 candidates per library/feed. This
-is a bounded recent window, not a full-library scan: a large season import can
-still leave fewer cards than requested. A badge counts recent episodes in that
-window when the card represents at least two episodes.
+Grouped mode considers items added today or yesterday in the server's time
+zone. If none are available, it shows the newest older item without a count.
+The widget requests `item-count` plus 10 candidates per library/feed and
+applies `item-count` after grouping. Badges count two or more episodes in the
+two-day window.
 
 ##### `hosts`
 

@@ -180,7 +180,16 @@ func (widget *latestMediaWidget) update(ctx context.Context) {
 		}
 		return allItems[i].AddedAt.After(allItems[j].AddedAt)
 	})
+	now := time.Now()
 	if widget.GroupSeries {
+		year, month, day := now.Date()
+		cutoff := time.Date(year, month, day-1, 0, 0, 0, 0, now.Location())
+		if len(allItems) > 0 && allItems[0].AddedAt.Before(cutoff) {
+			allItems = allItems[:1]
+		} else {
+			end := sort.Search(len(allItems), func(i int) bool { return allItems[i].AddedAt.Before(cutoff) })
+			allItems = allItems[:end]
+		}
 		allItems = groupLatestMediaSeries(allItems)
 	}
 
@@ -188,7 +197,6 @@ func (widget *latestMediaWidget) update(ctx context.Context) {
 		allItems = allItems[:widget.ItemCount]
 	}
 
-	now := time.Now()
 	for i := range allItems {
 		allItems[i].TimeAgo = formatTimeAgo(allItems[i].AddedAt, now)
 		if allItems[i].Duration > 0 {
@@ -542,11 +550,7 @@ func (widget *latestMediaWidget) fetchItemCount() int {
 	if !widget.GroupSeries {
 		return widget.ItemCount
 	}
-	// Bound provider work even when a season import fills the recent feed.
-	if widget.ItemCount >= 100 {
-		return 1000
-	}
-	return widget.ItemCount * 10
+	return widget.ItemCount + 10
 }
 
 // Items arrive newest first; the first episode represents its series.
