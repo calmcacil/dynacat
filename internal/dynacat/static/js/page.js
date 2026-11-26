@@ -3,10 +3,9 @@ import { setupMasonries } from './masonry.js';
 import { throttledDebounce, isElementVisible, openURLInNewTab, isNavigableURL } from './utils.js';
 import { elem, find, findAll } from './templating.js';
 
-async function fetchPageContent(pageData) {
-    // TODO: handle non 200 status codes/time outs
-    // TODO: add retries
-    const response = await fetch(`${pageData.baseURL}/api/pages/${pageData.slug}/content/`);
+async function fetchPageContent(pageData, signal) {
+    const response = await fetch(`${pageData.baseURL}/api/pages/${pageData.slug}/content/`, { signal });
+    if (!response.ok) throw new Error(`Page content request failed: ${response.status}`);
     const content = await response.text();
 
     return {
@@ -2033,7 +2032,7 @@ function setupWidgetPolling() {
     }
 }
 
-async function applyContentUpdate() {
+async function applyContentUpdate(signal) {
     setupUserScrollIntentTracking();
 
     const refreshStartedAt = nowMs();
@@ -2044,7 +2043,8 @@ async function applyContentUpdate() {
         return rect.bottom > 0 && rect.top < window.innerHeight;
     }) || null;
     const anchorTopBefore = anchorWidget ? anchorWidget.getBoundingClientRect().top : null;
-    const response = await fetchPageContent(pageData);
+    const response = await fetchPageContent(pageData, signal);
+    signal?.throwIfAborted();
     const pageContent = response.content;
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = pageContent;
@@ -2289,45 +2289,90 @@ function _runPostSettleSetup() {
     setupPlayingThumbnailCropping();
 }
 
-let _sseSource = null;
-let _intentionallyClosed = false;
+const sseInitialDelay = 1000;
+const sseMaxDelay = 30000;
+let sseSource;
+let sseRetryTimer;
+let sseBannerTimer;
+let sseBanner;
+let sseRecovery;
+let sseRetryDelay = sseInitialDelay;
 
-function _closeSSE() {
-    if (_sseSource) {
-        _intentionallyClosed = true;
-        _sseSource.close();
-        _sseSource = null;
-    }
+function scheduleSSERetry(callback) {
+    sseRetryTimer = setTimeout(callback, sseRetryDelay);
+    sseRetryDelay = Math.min(sseRetryDelay * 2, sseMaxDelay);
+}
+
+function closeSSE() {
+    clearTimeout(sseRetryTimer);
+    clearTimeout(sseBannerTimer);
+    sseRecovery?.abort();
+    sseSource?.close();
+    sseSource = null;
 }
 
 function _initSSE() {
-    if (!pageData.dynamicUpdateEnabled) {
-        return;
+    if (!pageData.dynamicUpdateEnabled) return;
+
+    const source = new EventSource(`${pageData.baseURL}/api/sse/updates`, { withCredentials: true });
+    sseSource = source;
+
+    async function recover() {
+        if (source !== sseSource || source.readyState !== EventSource.OPEN) return;
+        const recovery = new AbortController();
+        sseRecovery = recovery;
+        try {
+            await applyContentUpdate(recovery.signal);
+            if (recovery.signal.aborted) return;
+            clearTimeout(sseBannerTimer);
+            sseBannerTimer = undefined;
+            sseBanner?.remove();
+            sseBanner = undefined;
+            sseRetryDelay = sseInitialDelay;
+        } catch (error) {
+            if (recovery.signal.aborted) return;
+            console.error('Live update recovery failed', error);
+            scheduleSSERetry(recover);
+        } finally {
+            if (sseRecovery === recovery) sseRecovery = undefined;
+        }
     }
 
-    const url = `${pageData.baseURL}/api/sse/updates`;
-    _sseSource = new EventSource(url, { withCredentials: true });
+    source.onopen = () => {
+        if (sseBannerTimer !== undefined) recover();
+    };
 
-    _sseSource.addEventListener('widget-update', function(event) {
+    source.addEventListener('widget-update', event => {
+        if (source !== sseSource) return;
         try {
             const data = JSON.parse(event.data);
             _applyWidgetUpdate(data.widgetId, data.html);
-        } catch (e) {
-            console.error('SSE parse error', e);
+        } catch (error) {
+            console.error('SSE widget update failed', error);
         }
     });
 
-    _sseSource.onerror = function() {
-        if (_intentionallyClosed) {
-            return;
+    source.onerror = () => {
+        if (source !== sseSource) return;
+        clearTimeout(sseRetryTimer);
+        sseRecovery?.abort();
+        if (sseBannerTimer === undefined) {
+            sseBannerTimer = setTimeout(() => {
+                sseBanner = document.createElement('div');
+                sseBanner.className = 'live-updates-banner';
+                sseBanner.setAttribute('role', 'status');
+                document.body.prepend(sseBanner);
+                sseBanner.textContent = 'Live updates paused. Reconnecting…';
+            }, 4000);
         }
-        if (_sseSource.readyState === EventSource.CLOSED) {
-            window.location.reload();
+        if (source.readyState === EventSource.CLOSED) {
+            sseSource = null;
+            scheduleSSERetry(_initSSE);
         }
     };
 }
 
-window.addEventListener('beforeunload', _closeSSE);
+window.addEventListener('beforeunload', closeSSE);
 
 window.dynacatSetupPopovers = setupPopovers;
 window.dynacatSetupCollapsibleLists = setupCollapsibleLists;

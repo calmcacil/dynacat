@@ -7,6 +7,16 @@
     padding-block: var(--widget-gap);
 }
 
+.live-updates-banner {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 10;
+    padding: .4rem 1rem;
+    background: var(--color-widget-background-highlight);
+    text-align: center;
+    pointer-events: none;
+}
+
 .page-content, .page.content-ready .page-loading-container {
     display: none;
 }
