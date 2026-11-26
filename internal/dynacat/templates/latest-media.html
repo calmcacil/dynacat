@@ -43,6 +43,17 @@
         display: block;
     }
 
+    .latest-media-episode-count {
+        position: absolute;
+        top: .4rem;
+        right: .4rem;
+        padding: .15rem .45rem;
+        border-radius: .3rem;
+        background: rgba(0, 0, 0, .8);
+        color: #fff;
+        font-size: .9rem;
+    }
+
     .latest-media-thumb-placeholder {
         width: 100%;
         height: 100%;
@@ -157,8 +168,9 @@
             {{ if or .CoverURL .ThumbnailURL }}
                 <img class="latest-media-thumb"
                     src="{{ if .CoverURL }}{{ .CoverURL }}{{ else }}{{ .ThumbnailURL }}{{ end }}"
-                    alt="{{ .Title }}" loading="lazy"
-                    {{ if and .CoverURL .ThumbnailURL }}data-fallback-src="{{ .ThumbnailURL }}"{{ end }}>
+                    alt="{{ if and .EpisodeCount .SeriesTitle }}{{ .SeriesTitle }}{{ else }}{{ .Title }}{{ end }}" loading="lazy"
+                    {{ if and .CoverURL .ThumbnailURL }}data-fallback-src="{{ .ThumbnailURL }}"{{ end }}
+                    {{ if $.GroupSeries }}data-latest-media-poster="{{ if .CoverURL }}{{ .CoverURL }}{{ else }}{{ .ThumbnailURL }}{{ end }}"{{ end }}>
 
             {{ else }}
                 <div class="latest-media-thumb-placeholder">
@@ -176,6 +188,10 @@
                     </svg>
                     {{ end }}
                 </div>
+            {{ end }}
+
+            {{ if gt .EpisodeCount 1 }}
+            <span class="latest-media-episode-count" aria-label="{{ .EpisodeCount }} recently added episodes">{{ .EpisodeCount }}</span>
             {{ end }}
 
             {{ if $.ShowOverlayEnabled }}

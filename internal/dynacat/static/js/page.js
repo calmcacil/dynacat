@@ -1667,7 +1667,21 @@ async function updateWidget(widgetElement) {
     }
 }
 
+const preserveLatestMediaPoster = {
+    beforeNodeMorphed(oldNode, newNode) {
+        const poster = oldNode.dataset?.latestMediaPoster;
+        if (poster && poster === newNode.dataset?.latestMediaPoster &&
+            oldNode.dataset.fallbackSrc === newNode.dataset.fallbackSrc &&
+            oldNode.alt === newNode.alt) return false;
+    },
+};
+
 function updateContentPreservingImages(oldContent, newContent) {
+    if (oldContent.querySelector('[data-latest-media-poster]')) {
+        Idiomorph.morph(oldContent, newContent, { callbacks: preserveLatestMediaPoster });
+        return;
+    }
+
     const oldImages = Array.from(oldContent.querySelectorAll('img[loading="lazy"]'));
     const newImages = Array.from(newContent.querySelectorAll('img[loading="lazy"]'));
     const imageMap = new Map();
@@ -2238,7 +2252,7 @@ function _applyWidgetUpdate(widgetId, html) {
 
     try {
         target.querySelectorAll('.calendar').forEach(c => c.component?.suspend?.());
-        Idiomorph.morph(target, html, { morphStyle: 'outerHTML' });
+        Idiomorph.morph(target, html, { callbacks: preserveLatestMediaPoster });
 
         const liveTarget = document.querySelector(`.widget[data-widget-id="${widgetId}"]`);
         if (!liveTarget) return;
