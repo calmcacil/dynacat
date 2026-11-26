@@ -2296,6 +2296,7 @@ let sseRetryTimer;
 let sseHeartbeatTimer;
 let sseBannerTimer;
 let sseBanner;
+let ssePausedNavigation = [];
 let sseRecovery;
 let sseRetryDelay = sseInitialDelay;
 
@@ -2330,6 +2331,8 @@ function _initSSE() {
             sseBannerTimer = undefined;
             sseBanner?.remove();
             sseBanner = undefined;
+            for (const navigation of ssePausedNavigation) navigation.inert = false;
+            ssePausedNavigation = [];
             sseRetryDelay = sseInitialDelay;
         } catch (error) {
             if (recovery.signal.aborted) return;
@@ -2382,6 +2385,8 @@ function _initSSE() {
                 sseBanner.setAttribute('role', 'status');
                 document.body.prepend(sseBanner);
                 sseBanner.textContent = 'Live updates paused. Reconnecting…';
+                ssePausedNavigation = document.querySelectorAll('.header-container:not([inert]), .mobile-navigation:not([inert])');
+                for (const navigation of ssePausedNavigation) navigation.inert = true;
             }, 4000);
         }
         if (source.readyState === EventSource.CLOSED) {
