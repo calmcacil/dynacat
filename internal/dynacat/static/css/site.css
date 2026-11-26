@@ -10,7 +10,7 @@
 .live-updates-banner {
     position: fixed;
     inset: 0 0 auto;
-    z-index: 10;
+    z-index: 101;
     padding: .4rem 1rem;
     background: var(--color-widget-background-highlight);
     text-align: center;
