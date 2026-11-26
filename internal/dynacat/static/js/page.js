@@ -2384,7 +2384,7 @@ function _initSSE() {
                 sseBanner.className = 'live-updates-banner';
                 sseBanner.setAttribute('role', 'status');
                 document.body.prepend(sseBanner);
-                sseBanner.textContent = 'Live updates paused. Reconnecting…';
+                sseBanner.textContent = 'Connection lost. Reconnecting…';
                 ssePausedNavigation = document.querySelectorAll('.header-container:not([inert]), .mobile-navigation:not([inert])');
                 for (const navigation of ssePausedNavigation) navigation.inert = true;
             }, 4000);
