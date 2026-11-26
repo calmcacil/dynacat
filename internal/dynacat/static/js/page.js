@@ -2293,6 +2293,7 @@ const sseInitialDelay = 1000;
 const sseMaxDelay = 30000;
 let sseSource;
 let sseRetryTimer;
+let sseHeartbeatTimer;
 let sseBannerTimer;
 let sseBanner;
 let sseRecovery;
@@ -2305,6 +2306,7 @@ function scheduleSSERetry(callback) {
 
 function closeSSE() {
     clearTimeout(sseRetryTimer);
+    clearTimeout(sseHeartbeatTimer);
     clearTimeout(sseBannerTimer);
     sseRecovery?.abort();
     sseSource?.close();
@@ -2338,9 +2340,24 @@ function _initSSE() {
         }
     }
 
-    source.onopen = () => {
+    function expectHeartbeat() {
+        if (source !== sseSource) return;
+        clearTimeout(sseHeartbeatTimer);
+        sseHeartbeatTimer = setTimeout(() => {
+            source.close();
+            handleDisconnect();
+        }, 12000);
+    }
+
+    expectHeartbeat();
+    let receivedHeartbeat = false;
+    source.addEventListener('heartbeat', () => {
+        expectHeartbeat();
+        if (receivedHeartbeat) return;
+        receivedHeartbeat = true;
         if (sseBannerTimer !== undefined) recover();
-    };
+    });
+    source.onopen = expectHeartbeat;
 
     source.addEventListener('widget-update', event => {
         if (source !== sseSource) return;
@@ -2352,8 +2369,10 @@ function _initSSE() {
         }
     });
 
-    source.onerror = () => {
+    function handleDisconnect() {
         if (source !== sseSource) return;
+        receivedHeartbeat = false;
+        clearTimeout(sseHeartbeatTimer);
         clearTimeout(sseRetryTimer);
         sseRecovery?.abort();
         if (sseBannerTimer === undefined) {
@@ -2369,7 +2388,9 @@ function _initSSE() {
             sseSource = null;
             scheduleSSERetry(_initSSE);
         }
-    };
+    }
+
+    source.onerror = handleDisconnect;
 }
 
 window.addEventListener('beforeunload', closeSSE);

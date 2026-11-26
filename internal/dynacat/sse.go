@@ -317,7 +317,7 @@ func (a *application) handleSSEUpdates(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	fmt.Fprintf(w, ": connected\n\n")
+	fmt.Fprint(w, "event: heartbeat\ndata: 1\n\n")
 	flusher.Flush()
 
 	client := &sseClient{
@@ -330,11 +330,18 @@ func (a *application) handleSSEUpdates(w http.ResponseWriter, r *http.Request) {
 
 	authRecheck := time.NewTicker(15 * time.Second)
 	defer authRecheck.Stop()
+	heartbeat := time.NewTicker(5 * time.Second)
+	defer heartbeat.Stop()
 
 	for {
 		select {
 		case msg := <-client.ch:
 			fmt.Fprintf(w, "event: widget-update\ndata: %s\n\n", msg)
+			flusher.Flush()
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(w, "event: heartbeat\ndata: 1\n\n"); err != nil {
+				return
+			}
 			flusher.Flush()
 		case <-authRecheck.C:
 			if a.RequiresAuth && a.getAuthenticatedUser(w, r) == nil {
